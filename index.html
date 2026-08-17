@@ -1,0 +1,2037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Risk Quantifier: Heatmap to Histogram</title>
+    <style>
+        :root {
+            --accent: #8d5860;
+            --accent-2: #c7848d;
+            --accent-soft: #f4dcdf;
+            --paper: #f7ebed;
+            --paper-2: #f0dee0;
+            --panel: #ffffff;
+            --ink: #3a3336;
+            --ink-2: #4d4548;
+            --muted: #7a7073;
+            --line: #d8c9cc;
+            --soft-line: rgba(58, 51, 54, .08);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--paper);
+            color: var(--ink);
+            line-height: 1.6;
+        }
+
+        /* Width and gutter match the other risk-lab tools so the portfolio page
+           can align its tab strip and copy to the same edge. */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 40px 24px;
+        }
+
+        @media (max-width: 767px) {
+            .container {
+                padding: 32px 16px;
+            }
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            margin-bottom: 40px;
+            grid-template-areas:
+                "step1 step2"
+                "information information"
+                "results results";
+        }
+
+        .step1-section {
+            grid-area: step1;
+        }
+
+        .step2-section {
+            grid-area: step2;
+        }
+
+        .information-section {
+            grid-area: information;
+        }
+
+        .results-section {
+            grid-area: results;
+        }
+
+        .section {
+            background: var(--panel);
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--soft-line);
+        }
+
+        .section h2 {
+            font-size: 1.3rem;
+            margin-bottom: 20px;
+            color: var(--accent);
+        }
+
+        .section-description {
+            font-size: 0.95rem;
+            color: var(--muted);
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        /* Heatmap Grid */
+        .heatmap-container {
+            margin-bottom: 20px;
+        }
+
+        .heatmap-grid {
+            display: grid;
+            grid-template-columns: 60px repeat(5, 1fr);
+            grid-template-rows: auto repeat(5, 1fr);
+            gap: 2px;
+            background: var(--line);
+            padding: 2px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+
+        .heatmap-label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            background: var(--paper-2);
+            border: 1px solid var(--line);
+            color: var(--muted);
+            padding: 8px;
+            text-align: center;
+        }
+
+        .heatmap-cell {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-weight: 600;
+            color: white;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+            min-height: 50px;
+            font-size: 1rem;
+        }
+
+        .heatmap-cell:hover {
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+        }
+
+        .heatmap-cell.empty {
+            background: var(--paper-2);
+            color: var(--muted);
+        }
+
+        .heatmap-cell.low {
+            background: #4caf50;
+        }
+
+        .heatmap-cell.medium {
+            background: #ff9800;
+        }
+
+        .heatmap-cell.high {
+            background: var(--accent);
+        }
+
+        .heatmap-cell.placed {
+            border: 3px solid var(--ink);
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .heatmap-axes {
+            margin-top: 15px;
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        /* Risk Input Section */
+        /* Raised from 500px when the benchmark picker landed: a card carrying a
+           source list is roughly twice the height of a bare one, and 500px cut
+           the citations off mid-sentence -- which defeats the point of showing
+           them at all. */
+        .risks-container {
+            max-height: 900px;
+            overflow-y: auto;
+        }
+
+        .risk-item {
+            background: var(--paper);
+            border: 1px solid var(--soft-line);
+            border-radius: 6px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .risk-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .risk-name {
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--ink);
+        }
+
+        .risk-color {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            margin-left: 10px;
+        }
+
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .input-field {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .input-field label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .input-field input {
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: #ffffff;
+            color: var(--ink);
+            transition: border-color 0.2s;
+        }
+
+        .input-field input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-soft);
+        }
+
+        .frequency-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .impact-label {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        /* Information Box */
+        .information-box {
+            background: var(--accent-soft);
+            border: 1px solid var(--accent-2);
+            border-left: 4px solid var(--accent);
+            border-radius: 6px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .information-box h3 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .information-box p {
+            font-size: 0.9rem;
+            color: var(--ink);
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+
+        .information-box p:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Results Section */
+        .results-section h2 {
+            margin-bottom: 20px;
+            color: var(--accent);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #6b3f48;
+        }
+
+        .btn-primary:disabled {
+            background: var(--line);
+            color: var(--muted);
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: var(--paper);
+            color: var(--ink);
+            border: 1px solid var(--line);
+        }
+
+        .btn-secondary:hover {
+            background: var(--paper-2);
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 0.85rem;
+        }
+
+        .results-placeholder {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--muted);
+            border: 2px dashed var(--line);
+            border-radius: 6px;
+        }
+
+        /* Comparison Boxes */
+        .comparison-boxes {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .comparison-box {
+            background: var(--paper);
+            border: 1px solid var(--soft-line);
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .comparison-box h3 {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .comparison-box .count {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--ink);
+            margin-bottom: 8px;
+            font-family: 'Georgia', serif;
+        }
+
+        .comparison-box .subtitle {
+            font-size: 0.85rem;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        /* Risk Result Cards */
+        .risk-results {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .risk-result-card {
+            background: var(--paper);
+            border: 1px solid var(--soft-line);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .risk-result-card.portfolio-card {
+            border: 2px solid var(--ink);
+            grid-column: 1 / -1;
+        }
+
+        .risk-result-header {
+            background: var(--paper-2);
+            padding: 20px;
+            border-bottom: 1px solid var(--soft-line);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .risk-badge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: white;
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .risk-info {
+            flex: 1;
+        }
+
+        .risk-info-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--ink);
+            margin-bottom: 4px;
+        }
+
+        .risk-info-cell {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        .risk-result-body {
+            padding: 20px;
+        }
+
+        .chart-container {
+            height: 200px;
+            margin-bottom: 15px;
+            border: 1px solid var(--soft-line);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .risk-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .risk-stat {
+            background: var(--paper);
+            padding: 12px;
+            border-radius: 4px;
+            border: 1px solid var(--soft-line);
+            text-align: center;
+        }
+
+        .risk-stat-label {
+            font-size: 0.7rem;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 4px;
+        }
+
+        .risk-stat-value {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .risk-zero-percent {
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-align: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--soft-line);
+        }
+
+        .risk-counter {
+            font-size: 0.85rem;
+            color: var(--muted);
+        }
+
+        @media (max-width: 1024px) {
+            .content {
+                grid-template-columns: 1fr;
+                grid-template-areas:
+                    "step1"
+                    "step2"
+                    "information"
+                    "results";
+            }
+
+            .comparison-boxes {
+                grid-template-columns: 1fr;
+            }
+
+            .risk-results {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* On phones the impact labels are single unbreakable words, and a 1fr
+           track is at least as wide as its content, so the heatmap forced the
+           page ~60px wider than the viewport. minmax(0, 1fr) lets the columns
+           shrink; the smaller type keeps the labels on one line anyway. */
+        @media (max-width: 640px) {
+            .container {
+                padding: 24px 16px;
+            }
+
+            .section {
+                padding: 16px;
+            }
+
+            .heatmap-grid {
+                grid-template-columns: 44px repeat(5, minmax(0, 1fr));
+                font-size: 0.6rem;
+            }
+
+            .heatmap-label {
+                padding: 4px 2px;
+                overflow-wrap: anywhere;
+            }
+
+            .heatmap-cell {
+                min-height: 42px;
+                font-size: 0.85rem;
+            }
+        }
+
+        /* Benchmark picker and provenance */
+        .benchmark-picker {
+            margin-bottom: 12px;
+        }
+
+        .benchmark-picker label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .benchmark-picker select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: #ffffff;
+            color: var(--ink);
+        }
+
+        .provenance {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--soft-line);
+            font-size: 0.8rem;
+            color: var(--muted);
+        }
+
+        .prov-status {
+            font-weight: 600;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            font-size: 0.7rem;
+            margin-bottom: 8px;
+        }
+
+        .prov-warning {
+            background: var(--accent-soft);
+            border-left: 3px solid var(--accent);
+            padding: 8px 10px;
+            border-radius: 4px;
+            color: var(--ink);
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .provenance summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: var(--ink-2);
+        }
+
+        .provenance ul {
+            margin: 8px 0 0 18px;
+        }
+
+        .provenance li {
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .provenance code {
+            color: var(--ink-2);
+            font-size: 0.75rem;
+        }
+
+        .prov-confidence {
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .prov-limit {
+            color: var(--muted);
+            font-size: 0.75rem;
+            margin-top: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="content">
+            <!-- Step 1: Heatmap -->
+            <div class="step1-section">
+                <div class="section">
+                    <h2>Step 1: Place Your Risks</h2>
+                    <p class="section-description">Click cells to place up to 5 risks on the heatmap. Click again to remove.</p>
+
+                    <div class="heatmap-container">
+                        <div class="heatmap-grid" id="heatmapGrid"></div>
+                        <div class="heatmap-axes">
+                            <div><strong>Y-axis (Likelihood):</strong> Rare → Unlikely → Possible → Likely → Almost Certain</div>
+                            <div><strong>X-axis (Impact):</strong> Negligible → Minor → Moderate → Major → Severe</div>
+                        </div>
+                    </div>
+
+                    <div class="risk-counter">
+                        <strong id="riskCount">0</strong> of 5 risks placed
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Parameters -->
+            <div class="step2-section">
+                <div class="section">
+                    <h2>Step 2: Define Risk Parameters</h2>
+                    <p class="section-description">Adjust frequency (times per year) and impact (per event) for each risk, or load a source-backed benchmark and see what it is and is not good for.</p>
+
+                    <div class="risks-container" id="risksContainer">
+                        <div class="results-placeholder">Place risks on the heatmap to begin</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Information Box -->
+            <div class="information-section">
+                <div class="information-box">
+                    <h3>Information Lost</h3>
+                    <p>Every risk in the same cell is treated as identical, but they aren't. You can't tell the difference between a $50K loss and a $5M loss if they share a column.</p>
+                    <p>"Likely" means something different to every person in the room. There's no math you can do with this. You can't aggregate, compare, or compute ROI.</p>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="results-section section">
+                <h2>Step 3: Run Simulation</h2>
+
+                <div class="button-group">
+                    <button class="btn-primary" id="simulateBtn" disabled>Run Simulation (10,000 iterations)</button>
+                    <button class="btn-secondary btn-small" id="resetBtn">Reset All</button>
+                </div>
+
+                <div id="comparisonArea" style="display: none;">
+                    <div class="comparison-boxes">
+                        <div class="comparison-box">
+                            <h3>What the Heat Map Told You</h3>
+                            <div class="count" id="heatmapCount">0</div>
+                            <div class="subtitle">colored cells.<br>No dollar amounts. No ranges. No decision.</div>
+                        </div>
+                        <div class="comparison-box">
+                            <h3>What the Histograms Tell You</h3>
+                            <div class="count" id="histogramCount">0</div>
+                            <div class="subtitle">distributions with percentiles, ranges, and dollars you can act on.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="resultsArea">
+                    <div class="results-placeholder">Run the simulation to see results</div>
+                </div>
+
+                <div id="riskResultsArea" class="risk-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const state = {
+            risks: [],
+            riskResults: {},
+            aggregateResult: null,
+            simulations: 10000
+        };
+
+        const likelihoods = ['Rare', 'Unlikely', 'Possible', 'Likely', 'Almost Certain'];
+        const impacts = ['Negligible', 'Minor', 'Moderate', 'Major', 'Severe'];
+        const riskColors = ['#8d5860', '#3B82F6', '#10B981', '#A855F7', '#F97316'];
+
+        const colors = {
+            low: '#4caf50',
+            medium: '#ff9800',
+            high: '#8d5860'
+        };
+
+        function initHeatmap() {
+            const grid = document.getElementById('heatmapGrid');
+            grid.innerHTML = '';
+
+            grid.appendChild(createLabel(''));
+
+            impacts.forEach(impact => {
+                grid.appendChild(createLabel(impact));
+            });
+
+            likelihoods.slice().reverse().forEach((likelihood, rowIdx) => {
+                const row = 4 - rowIdx;
+
+                grid.appendChild(createLabel(likelihood));
+
+                impacts.forEach((impact, col) => {
+                    const cell = document.createElement('div');
+                    cell.className = 'heatmap-cell empty';
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+
+                    const severity = (row + col) / 8;
+                    if (severity < 0.4) {
+                        cell.classList.add('low');
+                    } else if (severity < 0.7) {
+                        cell.classList.add('medium');
+                    } else {
+                        cell.classList.add('high');
+                    }
+
+                    cell.addEventListener('click', () => handleCellClick(row, col, cell));
+                    grid.appendChild(cell);
+                });
+            });
+        }
+
+        function createLabel(text) {
+            const label = document.createElement('div');
+            label.className = 'heatmap-label';
+            label.textContent = text;
+            return label;
+        }
+
+        // What actually makes the heat map an on-ramp into the simulation
+        // rather than a lookup table it. Each cell has a real, distinct
+        // starting range -- not a flat default clicking anywhere used to
+        // produce. These are illustrative anchors: adjust them, don't ship
+        // them.
+        const FREQUENCY_ANCHORS_BY_ROW = [
+            { min: 0.02, likely: 0.1, max: 0.5 },    // Rare
+            { min: 0.1, likely: 0.3, max: 1.5 },     // Unlikely
+            { min: 0.3, likely: 1, max: 4 },         // Possible
+            { min: 1, likely: 3, max: 10 },          // Likely
+            { min: 4, likely: 10, max: 30 },         // Almost Certain
+        ];
+        const IMPACT_ANCHORS_BY_COL = [
+            { min: 1000, likely: 10000, max: 50000 },            // Negligible
+            { min: 10000, likely: 75000, max: 250000 },          // Minor
+            { min: 50000, likely: 300000, max: 1000000 },        // Moderate
+            { min: 250000, likely: 1500000, max: 6000000 },      // Major
+            { min: 1000000, likely: 8000000, max: 40000000 },    // Severe
+        ];
+
+        // Source-backed starting points, generated from RiskShard's governed
+        // shards (AGPL-3.0, https://github.com/raviaxo/RiskShard). Unlike the
+        // anchors above, every number here traces to a named public source and
+        // carries that source's own stated limitation. Regenerate with
+        // build_benchmarks.py rather than editing by hand.
+        const RISK_BENCHMARKS = [
+        {
+                "id": "au_finance_bec_midmarket",
+                "title": "Australia Finance Business Email Compromise Midmarket",
+                "label": "AU · Australia Finance Business Email Compromise Midmarket",
+                "scope": "AU · financial services · business email compromise",
+                "country": "AU",
+                "currency": "AUD",
+                "status": "starter_with_source_backed_floor_and_loss_anchors",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 3,
+                        "low": 3
+                },
+                "frequency": {
+                        "min": 0.00010514176186819692,
+                        "likely": 0.21,
+                        "max": 0.81
+                },
+                "impact": {
+                        "min": 33000,
+                        "likely": 170000,
+                        "max": 2670000
+                },
+                "not_good_for": "Benchmark-grade BEC likely frequency or tail-loss decisions.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "ACCC Targeting Scams Report 2025 and ABS Counts of Australian Businesses 2024-25",
+                                "url": "https://www.accc.gov.au/system/files/targeting-scams-report-2025.pdf",
+                                "confidence": "medium",
+                                "limitations": "Scamwatch loss reports are not complete BEC events, not financial-services-specific, and the denominator is all Australian businesses rather than mid-market financial-services firms."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Characteristics of Australian Business, 2024-25",
+                                "url": "https://www.abs.gov.au/statistics/industry/technology-and-innovation/characteristics-australian-business/2024-25",
+                                "confidence": "medium",
+                                "limitations": "All-industry, all-size, all-cyber measure, not BEC-specific and not mid-market-financial-services-specific; it counts businesses experiencing any cyber security incident, not confirmed BEC loss events, so it overstates BEC-only frequency. Revise when BEC-specific AU mid-market evidence is reviewed."
+                        },
+                        "frequency.max": {
+                                "source_name": "MYOB mid-sized business cyber attack survey 2024",
+                                "url": "https://cfotech.com.au/story/cyber-attacks-impact-60-of-mid-sized-australian-businesses",
+                                "confidence": "low",
+                                "limitations": "Commercial vendor survey (MYOB/Dynata), lower trust than official statistics; measures all cyber attacks, not BEC-specific, and counts businesses experiencing an attack rather than confirmed BEC loss events; mid-sized defined as 20-500 FTE with revenue over AUD 5M. Revise when official AU finance mid-market BEC frequency is available."
+                        },
+                        "impact.min": {
+                                "source_name": "ACCC Targeting Scams Report 2025",
+                                "url": "https://www.accc.gov.au/system/files/targeting-scams-report-2025.pdf",
+                                "confidence": "low",
+                                "limitations": "Scam-wide small-business average from Scamwatch reports, not BEC-only, financial-services-specific, mid-market-specific, or a full severity distribution."
+                        },
+                        "impact.likely": {
+                                "source_name": "FBI IC3 2025 Annual Report",
+                                "url": "https://www.ic3.gov/AnnualReport/Reports/2025_IC3Report.pdf",
+                                "confidence": "medium",
+                                "limitations": "US IC3 complaint population; self-reported and complaint-driven; not Australia-specific, financial-services-specific, mid-market-specific, or a full loss distribution."
+                        },
+                        "impact.max": {
+                                "source_name": "AFP media release - Business Email Compromise cost Australian victims more than $79 million in the past year",
+                                "url": "https://www.afp.gov.au/news-centre/media-release/business-email-compromise-cost-australian-victims-more-79-million-past",
+                                "confidence": "low",
+                                "limitations": "One documented case, not a modeled tail quantile and not a loss distribution - it establishes that an event of this size happened in Australia, not how often it happens or how much worse it gets. The victim is described only as \"an Australian business\", so sector and size are unknown and financial-services mid-market applicability is dilution rather than measurement. The 2020/21 vintage predates current payment-verification controls. Revise when an Australian BEC loss distribution with tail quantiles is published."
+                        }
+                }
+        },
+        {
+                "id": "au_finance_data_breach_midmarket",
+                "title": "Australia Finance Data Breach Midmarket",
+                "label": "AU · Australia Finance Data Breach Midmarket",
+                "scope": "AU · financial services · data breach",
+                "country": "AU",
+                "currency": "AUD",
+                "status": "starter_with_source_backed_impact",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.0008,
+                        "likely": 0.65,
+                        "max": 0.69
+                },
+                "impact": {
+                        "min": 97000,
+                        "likely": 6300000,
+                        "max": 50000000
+                },
+                "not_good_for": "Public benchmark-grade Australia mid-market breach likelihood or total-loss claims without human review accepting UK frequency/cost bridges and a statutory penalty-cap stress anchor.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "OAIC NDB Report July-Dec 2024 and ABS Counts of Australian Businesses 2024-25",
+                                "url": "https://www.oaic.gov.au/__data/assets/pdf_file/0021/251184/Notifiable-data-breaches-report-July-to-December-2024.pdf",
+                                "confidence": "medium",
+                                "limitations": "Covers eligible Australian NDB notifications only; all-size sector denominator is not mid-market-specific; multiple notifications by one entity and unreported/non-reportable breaches can distort organization-level probability. Confidence is medium for a reported-notification floor, not for a likely breach rate."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "UK official survey; covers identified cyber breaches or attacks, not privacy-only data breaches; not Australia-specific, not financial-services-specific, and may include high-volume low-impact events."
+                        },
+                        "frequency.max": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "UK official survey; covers identified cyber breaches or attacks, not privacy-only data breaches; large-business prevalence can overstate mid-market likelihood; not Australia-specific or financial-services-specific."
+                        },
+                        "impact.min": {
+                                "source_name": "Business Queensland Keeping your business cyber secure",
+                                "url": "https://www.business.qld.gov.au/running-business/digital-business/online-risk-security/cyber-security",
+                                "confidence": "medium",
+                                "limitations": "Secondary government guidance page that links to ASD as the primary source; cybercrime-wide rather than data-breach-specific, not financial-services-specific, and not a loss distribution quantile."
+                        },
+                        "impact.likely": {
+                                "source_name": "SecurityBrief Australia coverage of IBM Cost of a Data Breach 2026",
+                                "url": "https://securitybrief.com.au/story/australia-breach-costs-hit-aud-4-22-million-ibm-says",
+                                "confidence": "medium",
+                                "limitations": "Average across IBM's studied Australian financial-services breaches - IBM does not publish per-country-per-industry sample sizes, so this cell is thin by construction and the level should be treated as indicative. Enterprise-leaning studied population used for a mid-market org profile (size stays bridged); an average, not a distribution quantile. Secondary news coverage of the report rather than the gated primary PDF; the cited sentence was verified in the gathered artifact. Newer study year (2025-26 breaches) than the global 2025 anchor it replaces."
+                        },
+                        "impact.max": {
+                                "source_name": "Privacy Act 1988",
+                                "url": "https://www.legislation.gov.au/C2004A03712/latest/text",
+                                "confidence": "medium",
+                                "limitations": "Statutory maximum penalty cap, not a total event-loss estimate, not expected loss, not financial-services-specific, and actual penalties depend on regulator and court facts."
+                        }
+                }
+        },
+        {
+                "id": "au_finance_ransomware_midmarket",
+                "title": "Australia Finance Ransomware Midmarket",
+                "label": "AU · Australia Finance Ransomware Midmarket",
+                "scope": "AU · financial services · ransomware",
+                "country": "AU",
+                "currency": "AUD",
+                "status": "starter_country_resident_anchors_sector_bridged",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.1,
+                        "likely": 0.54,
+                        "max": 0.7
+                },
+                "impact": {
+                        "min": 97000,
+                        "likely": 900000,
+                        "max": 76000000
+                },
+                "not_good_for": "Treating the all-sector Australian readings as financial-services rates, the stress frequency as a true tail percentile, or the Latitude enterprise extortion loss as a plausible mid-market ransomware outcome.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Cyentia IRIS Ransomware",
+                                "url": "https://www.cyentia.com/publication/iris-ransomware/",
+                                "confidence": "medium",
+                                "limitations": "Global cross-sector estimate; not Australia-specific and not financial-services-specific."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Sophos The State of Ransomware 2024 (archived snapshot)",
+                                "url": "https://web.archive.org/web/20240430145048if_/https://assets.sophos.com/X24WTUEQ/at/9brgj5n44hqvgsp5f5bqcps/sophos-state-of-ransomware-2024-wp.pdf",
+                                "confidence": "medium",
+                                "limitations": "Attack prevalence (\"hit by ransomware\"), not loss-event frequency - it counts organizations attacked, including attacks stopped before material loss, so it overstates loss-event frequency. All-sector Australian sample used for a financial-services shard; the sector dimension stays bridged (the global financial-services comparator read 65% in the same survey year). Survey population is organizations with 100-5,000 employees - the 450-employee org profile is inside the window, but the window is far broader than mid-market. Vendor-commissioned survey, n=330 Australian respondents. The Australian series is falling steeply (80% in 2022, 70% in 2023, 54% in 2024) and the 2025 edition dropped prevalence reporting entirely, so this reading cannot be refreshed like-for-like."
+                        },
+                        "frequency.max": {
+                                "source_name": "Sophos The State of Ransomware 2023 (archived snapshot)",
+                                "url": "https://web.archive.org/web/20230511013336if_/https://assets.sophos.com/X24WTUEQ/at/c949g7693gsnjh9rb9gr8/sophos-state-of-ransomware-2023-wp.pdf",
+                                "confidence": "medium",
+                                "limitations": "Attack prevalence, not loss-event frequency (see the likely record). The stress anchor is one survey-year older than the likely anchor, taken from a declining series (80% 2022, 70% 2023, 54% 2024) - using an older, higher reading as the stress bound is a deliberate conservative choice, not a tail percentile. All-sector Australian sample; sector stays bridged. n=200 Australian respondents in the 2023 cycle. Vendor-commissioned."
+                        },
+                        "impact.min": {
+                                "source_name": "Business Queensland Keeping your business cyber secure",
+                                "url": "https://www.business.qld.gov.au/running-business/digital-business/online-risk-security/cyber-security",
+                                "confidence": "medium",
+                                "limitations": "Secondary government guidance page that links to ASD as the primary source; cybercrime-wide rather than ransomware-specific, not financial-services-specific, and not a loss distribution quantile."
+                        },
+                        "impact.likely": {
+                                "source_name": "Sophos The State of Ransomware in Australia 2025",
+                                "url": "https://assets.sophos.com/X24WTUEQ/at/k5krqsjhn4zbvj84448rhh/sophos-state-of-ransomware-in-australia-2025.pdf",
+                                "confidence": "medium",
+                                "limitations": "Excludes any ransom payments - the same survey reports a median Australian ransom payment of USD 350,000 among the 41% who paid, so the all-in cost of a paid incident can be materially higher than this anchor. Mean over 191 Australian organizations of 100-5,000 employees across all sectors, conditional on being hit; the sector dimension stays bridged for a financial-services shard. Self-reported, vendor-commissioned, and a steep one-year move (USD 2.37M to 0.65M) in a small sample suggests volatility - treat the level as indicative, not stable."
+                        },
+                        "impact.max": {
+                                "source_name": "Latitude Group Holdings 1H23 Results Investor Presentation",
+                                "url": "https://investors.latitudefinancial.com.au/DownloadFile.axd?file=%2FReport%2FComNews%2F20230818%2F02698845.pdf",
+                                "confidence": "medium",
+                                "limitations": "A single documented event, not a loss-distribution percentile. The March 2023 incident was a data-theft extortion attack (a ransom was demanded and refused, consistent with government advice); encryption was not confirmed and Latitude describes it as a cyber incident, so the ransomware threat dimension stays bridged. Latitude is a large ASX-listed lender far above the mid-market org profile - the size dimension stays bridged, and an AUD 76M loss is a deliberate stress ceiling, not a plausible mid-market outcome. The disclosed figure excludes potential regulatory fines, class actions and future system uplift (understating the true tail) and ignores possible insurance recoveries (overstating net loss)."
+                        }
+                }
+        },
+        {
+                "id": "ca_finance_data_breach_midmarket",
+                "title": "Canada Finance Data Breach Midmarket",
+                "label": "CA · Canada Finance Data Breach Midmarket",
+                "scope": "CA · financial services · data breach",
+                "country": "CA",
+                "currency": "CAD",
+                "status": "benchmark_review_candidate",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.15,
+                        "likely": 0.201,
+                        "max": 0.273
+                },
+                "impact": {
+                        "min": 90000,
+                        "likely": 6980000,
+                        "max": 20800000
+                },
+                "not_good_for": "Public benchmark-grade Canada impact claims, financial-services-specific Canadian cost claims, or Canada tail-loss claims without human caveat review.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Statistics Canada Table 22-10-0076-01 (Canadian Survey of Cyber Security and Cybercrime)",
+                                "url": "https://www150.statcan.gc.ca/n1/tbl/csv/22100076-eng.zip",
+                                "confidence": "medium",
+                                "limitations": "Motive-classified construct, not confirmed breaches - counts impactful incidents aimed at stealing personal or financial information, so it can overstate confirmed-breach frequency (impactful attempts count) and understate it (breaches motivated by ransom or with unknown motive are classified under other incident types). StatCan medium is 50-249 employees while the shard org profile models 450 employees, which falls in StatCan large (250+); the same-cycle large-band cell reads 21.5%. Survey covers enterprises with 10 or more employees. Biennial; 2025 cycle expected around October 2026."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Statistics Canada Table 22-10-0076-01 (Canadian Survey of Cyber Security and Cybercrime)",
+                                "url": "https://www150.statcan.gc.ca/n1/tbl/csv/22100076-eng.zip",
+                                "confidence": "medium",
+                                "limitations": "Motive-classified construct, not confirmed breaches - counts impactful incidents aimed at stealing personal or financial information, so it can overstate confirmed-breach frequency (impactful attempts count) and understate it (breaches motivated by ransom or with unknown motive are classified under other incident types). StatCan medium is 50-249 employees while the shard org profile models 450 employees, which falls in StatCan large (250+); the same-cycle large-band cell reads 23.9%. Survey covers enterprises with 10 or more employees. Biennial; 2025 cycle expected around October 2026."
+                        },
+                        "frequency.max": {
+                                "source_name": "Statistics Canada Table 22-10-0076-01 (Canadian Survey of Cyber Security and Cybercrime)",
+                                "url": "https://www150.statcan.gc.ca/n1/tbl/csv/22100076-eng.zip",
+                                "confidence": "medium",
+                                "limitations": "The 2021 cell carries StatCan quality code C (use with caution) - the weakest of the three anchors; the adjacent large-band 2023 cell (23.9%, quality B) is the alternative stress anchor if the C-coded cell is rejected on review. Motive-classified construct, not confirmed breaches - counts impactful incidents aimed at stealing personal or financial information, so it can overstate confirmed-breach frequency (impactful attempts count) and understate it (breaches motivated by ransom or with unknown motive are classified under other incident types). StatCan medium is 50-249 employees while the shard org profile models 450 employees. Survey covers enterprises with 10 or more employees."
+                        },
+                        "impact.min": {
+                                "source_name": "NetDiligence Cyber Claims Study 2025 (Fifteenth Annual)",
+                                "url": "https://netdiligence.com/cyber-claims-study-2025-report/",
+                                "confidence": "medium",
+                                "limitations": "N=8 Canadian Hacker claims over five years - a thin cell; an average used as a floor, not a minimum quantile. NetDiligence classifies claims by cause of loss, not outcome, so Hacker claims are unauthorized-intrusion claims that may or may not involve confirmed data compromise - the threat dimension remains bridged. All-sector dataset whose Canadian organizations average USD 654M annual revenue (enterprise-leaning vs the 85M CAD org profile). Insured claims only, so uninsured incidents and self-retained costs are invisible."
+                        },
+                        "impact.likely": {
+                                "source_name": "IBM Canada newsroom release, Cost of a Data Breach Report 2025",
+                                "url": "https://canada.newsroom.ibm.com/2025-07-30-IBM-Report-Canadians-Data-Security-Under-Increased-Threat,-While-Breach-Costs-Surge",
+                                "confidence": "medium",
+                                "limitations": "Primary IBM Canada release, but an all-sector national average across studied breached organizations, not mid-market-specific or financial-services-specific; IBM's sample skews toward larger organizations, so this is an upper-leaning mid-market likely anchor."
+                        },
+                        "impact.max": {
+                                "source_name": "NetDiligence Cyber Claims Study 2025 (Fifteenth Annual)",
+                                "url": "https://netdiligence.com/cyber-claims-study-2025-report/",
+                                "confidence": "medium",
+                                "limitations": "The maximum of 84 Canadian insured claims across all causes of loss, 2020-2024 - not data-breach-specific (threat bridged) and not a formal tail percentile. Insured-claims data structurally truncates the tail - uninsured organizations, self-retained costs above policy limits, and outlier Canadian breach losses (e.g. enterprise-scale events such as Desjardins, an order of magnitude larger) are invisible; review may prefer the wider Cyentia global extreme (USD 32M) if tail conservatism outweighs country specificity. Canadian organizations in the dataset average USD 654M annual revenue (enterprise-leaning vs the 85M CAD org profile), which makes the maximum an upper-leaning midmarket stress rather than an understated one."
+                        }
+                }
+        },
+        {
+                "id": "de_industrial_ransomware_midmarket",
+                "title": "Germany Industrial Ransomware Midmarket",
+                "label": "DE · Germany Industrial Ransomware Midmarket",
+                "scope": "DE · manufacturing · ransomware",
+                "country": "DE",
+                "currency": "USD",
+                "status": "benchmark_review_candidate",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.1,
+                        "likely": 0.34,
+                        "max": 0.59
+                },
+                "impact": {
+                        "min": 12000,
+                        "likely": 1300000,
+                        "max": 5000000
+                },
+                "not_good_for": "Treating the stress impact as a true total-loss maximum or assuming the manufacturing loss bridges are Germany-specific claims data.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Cyentia IRIS Ransomware",
+                                "url": "https://www.cyentia.com/publication/iris-ransomware/",
+                                "confidence": "medium",
+                                "limitations": "Global cross-sector estimate; not Germany-specific, manufacturing-specific, or size-band-specific."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Bitkom Wirtschaftsschutz 2025",
+                                "url": "https://www.bitkom.org/sites/main/files/2025-12/bitkom-studienbericht-wirtschaftsschutz-2025_2.pdf",
+                                "confidence": "medium",
+                                "limitations": "Cross-industry Germany company survey; not manufacturing-specific, not limited to mid-market organizations, and reflects damage-causing ransomware rather than all attack attempts."
+                        },
+                        "frequency.max": {
+                                "source_name": "Bitkom Wirtschaftsschutz 2025",
+                                "url": "https://www.bitkom.org/sites/main/files/2025-12/bitkom-studienbericht-wirtschaftsschutz-2025_2.pdf",
+                                "confidence": "medium",
+                                "limitations": "Derived from survey basis counts rather than a standalone plotted rate; cross-industry, survey-based, and broader than damage-causing ransomware."
+                        },
+                        "impact.min": {
+                                "source_name": "Bitkom Wirtschaftsschutz 2025",
+                                "url": "https://www.bitkom.org/sites/main/files/2025-12/bitkom-studienbericht-wirtschaftsschutz-2025_2.pdf",
+                                "confidence": "medium",
+                                "limitations": "Payment-only lower-band anchor, not total event loss, recovery cost, downtime, or a Germany industrial claims distribution."
+                        },
+                        "impact.likely": {
+                                "source_name": "Sophos State of Ransomware in Manufacturing and Production 2025",
+                                "url": "https://www.sophos.com/en-us/blog/the-state-of-ransomware-in-manufacturing-and-production-2025",
+                                "confidence": "medium",
+                                "limitations": "Global manufacturing survey of organizations hit by ransomware; excludes ransoms paid, is not Germany-specific, and is not a full total-loss distribution."
+                        },
+                        "impact.max": {
+                                "source_name": "Sophos State of Ransomware in Manufacturing and Production 2025",
+                                "url": "https://www.sophos.com/en-us/blog/the-state-of-ransomware-in-manufacturing-and-production-2025",
+                                "confidence": "medium",
+                                "limitations": "Threshold for extreme ransom demands and payouts, not total event loss, not Germany-specific, and not a formal percentile or upper bound."
+                        }
+                }
+        },
+        {
+                "id": "fr_finance_data_breach_midmarket",
+                "title": "France Finance Data Breach Midmarket",
+                "label": "FR · France Finance Data Breach Midmarket",
+                "scope": "FR · financial services · data breach",
+                "country": "FR",
+                "currency": "USD",
+                "status": "starter_with_source_backed_france_direct_parameters",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.0198,
+                        "likely": 0.0383,
+                        "max": 0.073
+                },
+                "impact": {
+                        "min": 70000,
+                        "likely": 4200000,
+                        "max": 23300000
+                },
+                "not_good_for": "France financial-services benchmark-grade claims until a financial-sector-specific frequency source replaces the Eurostat non-financial proxy and France-specific breach-cost floor/tail evidence replaces the Asteres all-cyber average and the GDPR statutory-cap stress anchor.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Eurostat ISOC_CISCE_IC - ICT security incidents by size class (France)",
+                                "url": "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/isoc_cisce_ic?format=JSON&lang=EN&geo=FR&indic_is=E_SEC2ICNF&unit=PC_ENT",
+                                "confidence": "medium",
+                                "limitations": "Eurostat survey population excludes the financial sector (nace_r2 = C10-S951_X_K), so this is a non-financial-sector proxy; self-reported disclosure incidents are narrower than \"any cyberattack\"; small-enterprise rate used as a floor."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Eurostat ISOC_CISCE_IC - ICT security incidents by size class (France)",
+                                "url": "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/isoc_cisce_ic?format=JSON&lang=EN&geo=FR&indic_is=E_SEC2ICNF&unit=PC_ENT",
+                                "confidence": "medium",
+                                "limitations": "Eurostat survey population excludes the financial sector, which is typically more targeted, so this likely understates; self-reported disclosure incidents are narrower than \"any cyberattack.\""
+                        },
+                        "frequency.max": {
+                                "source_name": "Eurostat ISOC_CISCE_IC - ICT security incidents by size class (France)",
+                                "url": "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/isoc_cisce_ic?format=JSON&lang=EN&geo=FR&indic_is=E_SEC2ICNF&unit=PC_ENT",
+                                "confidence": "medium",
+                                "limitations": "Eurostat survey population excludes the financial sector, which is typically more targeted, so this likely understates; large-enterprise rate used as an upper bound for a mid-market shard."
+                        },
+                        "impact.min": {
+                                "source_name": "Asteres - Le cout des cyberattaques reussies en France (2022)",
+                                "url": "https://asteres.fr/site/wp-content/uploads/2023/06/ASTERES-CRIP-Cout-des-cyberattaques-reussies-16062023.pdf",
+                                "confidence": "medium",
+                                "limitations": "Economy-wide France average across all organization sizes and all cyberattack types, not data-breach-specific, financial-services-specific, or a true minimum quantile. Used only as a conservative lower-bound anchor."
+                        },
+                        "impact.likely": {
+                                "source_name": "Rapport IBM 2025 : coût d'une violation de données en France",
+                                "url": "https://fr.newsroom.ibm.com/Rapport-IBM-13-des-organisations-ont-signale-des-violations-de-modeles-ou-dapplications-dIA,-dont-97-ont-declare-ne-pas-disposer-de-controles-dacces-a-lIA-appropries",
+                                "confidence": "medium",
+                                "limitations": "All-sector France national average, not mid-market- or financial-services-specific; based on 34 French organizations and enterprise-weighted, so treat as an upper-leaning mid-market likely anchor. The France financial-services sub-figure (EUR 4.65M) rests on a small sample and is recorded as sector context, not the selected anchor."
+                        },
+                        "impact.max": {
+                                "source_name": "GDPR Article 83(5) maximum administrative fine (via CNIL)",
+                                "url": "https://www.cnil.fr/fr/cnil-direct/question/sanctions-quelles-sanctions-peuvent-etre-prononcees-par-la-cnil",
+                                "confidence": "medium",
+                                "limitations": "Statutory maximum penalty cap, not a total event-loss estimate, expected loss, or claims severity; actual fines depend on regulator and case facts."
+                        }
+                }
+        },
+        {
+                "id": "gb_finance_data_breach_midmarket",
+                "title": "United Kingdom Finance Data Breach Midmarket",
+                "label": "GB · United Kingdom Finance Data Breach Midmarket",
+                "scope": "GB · financial services · data breach",
+                "country": "GB",
+                "currency": "GBP",
+                "status": "starter_with_source_backed_uk_direct_parameters",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.43,
+                        "likely": 0.65,
+                        "max": 0.69
+                },
+                "impact": {
+                        "min": 10000,
+                        "likely": 5740000,
+                        "max": 11164400
+                },
+                "not_good_for": "Treating the FCA penalty stress anchor as total event loss, or making org-specific regulatory reporting decisions without local review.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "Covers identified breaches or attacks, not privacy-only data breaches; hidden or unidentified events may be absent; all-business figure is not financial-services-specific."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "Covers identified breaches or attacks, not privacy-only data breaches; not financial-services-specific and may include high-volume low-impact events."
+                        },
+                        "frequency.max": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "Covers identified breaches or attacks, not privacy-only data breaches; larger organization prevalence may overstate mid-market frequency."
+                        },
+                        "impact.min": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "Perceived cost of the most disruptive breach or attack; broader than privacy breach cost; sample and cost definition differ from enterprise breach-cost studies. Confidence is medium only for use as a conservative UK mid-market material-cost floor."
+                        },
+                        "impact.likely": {
+                                "source_name": "IBM UK Cost of a Data Breach 2025 release",
+                                "url": "https://uk.newsroom.ibm.com/2025-cost-of-data-breach-UK",
+                                "confidence": "medium",
+                                "limitations": "Surveyed/studied breach population; sponsor methodology; not mid-market-specific, not a full distribution, and not a regulator-reported loss table."
+                        },
+                        "impact.max": {
+                                "source_name": "FCA fines Equifax Ltd over cyber security breach",
+                                "url": "https://www.fca.org.uk/news/press-releases/equifax-ltd-fine-cyber-security-breach",
+                                "confidence": "medium",
+                                "limitations": "Regulatory penalty only; not total event loss, insurance claim severity, or a full tail distribution; the incident was a large credit-reference data breach, not a mid-market-specific loss sample. Confidence is medium only for use as a source-backed UK regulatory stress anchor."
+                        }
+                }
+        },
+        {
+                "id": "jp_manufacturing_ransomware_midmarket",
+                "title": "Japan Manufacturing Ransomware Midmarket",
+                "label": "JP · Japan Manufacturing Ransomware Midmarket",
+                "scope": "JP · manufacturing · ransomware",
+                "country": "JP",
+                "currency": "USD",
+                "status": "benchmark_review_candidate",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.1,
+                        "likely": 0.51,
+                        "max": 0.58
+                },
+                "impact": {
+                        "min": 6000,
+                        "likely": 1300000,
+                        "max": 5000000
+                },
+                "not_good_for": "Benchmark claims or Japan-local manufacturing decisions without replacing estimated frequency values and full-loss bridges.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Cyentia IRIS Ransomware",
+                                "url": "https://www.cyentia.com/publication/iris-ransomware/",
+                                "confidence": "medium",
+                                "limitations": "Global cross-sector estimate; not Japan-specific, manufacturing-specific, or size-band-specific."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Sophos The State of Ransomware 2024 (archived snapshot)",
+                                "url": "https://web.archive.org/web/20240430145048if_/https://assets.sophos.com/X24WTUEQ/at/9brgj5n44hqvgsp5f5bqcps/sophos-state-of-ransomware-2024-wp.pdf",
+                                "confidence": "medium",
+                                "limitations": "Attack prevalence (\"hit by ransomware\"), not loss-event frequency - it counts organizations attacked, including attacks stopped before material loss, so it overstates loss-event frequency (in the 2025 manufacturing report only ~40% of attacks resulted in encryption). All-sector Japanese sample used for a manufacturing shard; the sector dimension stays bridged (the global manufacturing comparator read 65% in the same survey year, above Japan's all-sector rate). Survey population is organizations with 100-5,000 employees. Vendor-commissioned, n=500 Japanese respondents. The Japanese series is falling (61% in 2022, 58% in 2023, 51% in 2024) and the 2025 edition dropped prevalence reporting entirely, so this reading cannot be refreshed like-for-like.\n"
+                        },
+                        "frequency.max": {
+                                "source_name": "Sophos The State of Ransomware 2023 (archived snapshot)",
+                                "url": "https://web.archive.org/web/20230511013336if_/https://assets.sophos.com/X24WTUEQ/at/c949g7693gsnjh9rb9gr8/sophos-state-of-ransomware-2023-wp.pdf",
+                                "confidence": "medium",
+                                "limitations": "Attack prevalence, not loss-event frequency (see the likely record). The stress anchor is one survey-year older than the likely anchor, taken from a declining series (61% 2022, 58% 2023, 51% 2024) - an older, higher reading used as a deliberate conservative stress bound, not a tail percentile. All-sector Japanese sample; sector stays bridged. n=300 Japanese respondents in the 2023 cycle. Vendor-commissioned.\n"
+                        },
+                        "impact.min": {
+                                "source_name": "National Police Agency of Japan 2025 Cyber Threat Situation Statistics Data",
+                                "url": "https://www.npa.go.jp/publications/statistics/cybersecurity/data/R7/R07_jousei_data.xlsx",
+                                "confidence": "medium",
+                                "limitations": "Investigation/restoration cost band only; excludes broader business interruption, ransom, legal, customer, and strategic impacts."
+                        },
+                        "impact.likely": {
+                                "source_name": "Sophos State of Ransomware in Manufacturing and Production 2025",
+                                "url": "https://www.sophos.com/en-us/blog/the-state-of-ransomware-in-manufacturing-and-production-2025",
+                                "confidence": "medium",
+                                "limitations": "Global survey of organizations hit by ransomware; not Japan-specific and excludes ransom payments."
+                        },
+                        "impact.max": {
+                                "source_name": "Sophos State of Ransomware in Manufacturing and Production 2025",
+                                "url": "https://www.sophos.com/en-us/blog/the-state-of-ransomware-in-manufacturing-and-production-2025",
+                                "confidence": "medium",
+                                "limitations": "Threshold for extreme ransom demands and payouts; not Japan-specific, not total event loss, and not a formal percentile."
+                        }
+                }
+        },
+        {
+                "id": "sg_finance_bec_midmarket",
+                "title": "Singapore Finance Business Email Compromise Midmarket",
+                "label": "SG · Singapore Finance Business Email Compromise Midmarket",
+                "scope": "SG · financial services · business email compromise",
+                "country": "SG",
+                "currency": "USD",
+                "status": "starter_with_singapore_floor_ceiling_and_spf_losses",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 3,
+                        "low": 3
+                },
+                "frequency": {
+                        "min": 0.001,
+                        "likely": 0.63,
+                        "max": 0.8
+                },
+                "impact": {
+                        "min": 50000,
+                        "likely": 130000,
+                        "max": 6660000
+                },
+                "not_good_for": "Singapore-local fraud benchmarking until payment-fraud, sector-denominator, and tail-loss evidence is reviewed.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "SPF Annual Scam and Cybercrime Brief 2025 and SingStat Enterprise Landscape M600981",
+                                "url": "https://www.police.gov.sg/-/media/SPF/Media-Room/Statistics/Annual-Scams-and-Cybercrime-Brief-2025/Annual-Scam-and-Cybercrime-Brief-2025.pdf",
+                                "confidence": "medium",
+                                "limitations": "Reported police cases only - BEC is heavily under-reported, so this is a hard floor, not an incidence estimate. The numerator counts all reported Singapore BEC cases across every sector and victim size while the denominator counts all enterprises, so the ratio is all-sector, all-size by construction (sector stays bridged for a financial-services shard). Case counts and enterprise counts come from different collection systems; multiple cases can involve one organisation. The SingStat API serves the latest table revision (rolling) - re-verify the denominator on re-gathering."
+                        },
+                        "frequency.likely": {
+                                "source_name": "2025 AFP Payments Fraud and Control Survey Report",
+                                "url": "https://web.archive.org/web/20250707164054/https://www.financialprofessionals.org/training-resources/resources/survey-research-economic-data/details/payments-fraud",
+                                "confidence": "low",
+                                "limitations": "GLOBAL BRIDGE, NOT SINGAPORE-SPECIFIC. US survey; measures organizations experiencing attempted or actual BEC, not confirmed loss events; respondents skew corporate-treasury and larger organizations. Scouted 2026-08-03 - no Singapore organisation-level BEC-specific prevalence exists publicly (the CSA Health Report 2023 publishes only an all-cyber prevalence, used as this shard's stress ceiling; SPF publishes case counts, not organisation prevalence), so this US anchor is kept as the threat-closest likely rate and the country bridge here is structural until CSA publishes per-incident-type prevalence."
+                        },
+                        "frequency.max": {
+                                "source_name": "CSA Singapore Cybersecurity Health Report 2023",
+                                "url": "https://isomer-user-content.by.gov.sg/36/1051bace-6be7-4c59-934a-e43c952a32ed/csa-singapore-cybersecurity-health-report-2023.pdf",
+                                "confidence": "medium",
+                                "limitations": "ALL-CYBER, NOT BEC-SPECIFIC - the report publishes no per-incident-type organisation prevalence, so this is a deliberate stress ceiling (any-incident prevalence bounds BEC prevalence from above), not a BEC rate; the threat dimension is bridged. All-sector, all-size Singapore sample (2,036 organisations including non-profits); sector stays bridged for a financial-services shard. Survey-based, single 2023 fielding - no trend series yet. Encounter construct includes incidents without material loss."
+                        },
+                        "impact.min": {
+                                "source_name": "Verizon 2026 Data Breach Investigations Report",
+                                "url": "https://www.verizon.com/business/resources/T766/reports/2026-dbir-data-breach-investigations-report.pdf",
+                                "confidence": "low",
+                                "limitations": "GLOBAL BRIDGE, NOT SINGAPORE-SPECIFIC. Median of FBI IC3 complaint-reported (US) BEC losses; complaint-driven and self-reported; not a Singapore or mid-market figure. Revise when a Singapore BEC loss floor is reviewed."
+                        },
+                        "impact.likely": {
+                                "source_name": "SPF Annual Scam and Cybercrime Brief 2025",
+                                "url": "https://www.police.gov.sg/-/media/SPF/Media-Room/Statistics/Annual-Scams-and-Cybercrime-Brief-2025/Annual-Scam-and-Cybercrime-Brief-2025.pdf",
+                                "confidence": "medium",
+                                "limitations": "Reported cases only, so this is an incidence-and-loss floor: BEC losses that were never reported to police are invisible. Covers all sectors, not financial services specifically, and is not mid-market-specific. Two-year pooling hides a 60 percent single-year swing in total losses, so the central estimate is stable but the underlying series is volatile. Currency converted at a single reference-rate date rather than at each incident's own rate."
+                        },
+                        "impact.max": {
+                                "source_name": "SPF Business Email Compromise scam interception case 2024",
+                                "url": "https://www.police.gov.sg/media-hub/news/2024/20241008_international_cooperation_leading_to_the_interception",
+                                "confidence": "low",
+                                "limitations": "One documented extreme Singapore BEC case (an investment banking firm), not a mid-market average or a loss percentile; over USD 5M was intercepted, but recovery is not guaranteed so the gross figure is modeled. Revise when a Singapore BEC loss distribution with tail quantiles is reviewed."
+                        }
+                }
+        },
+        {
+                "id": "us_finance_bec_midmarket",
+                "title": "United States Finance Business Email Compromise Midmarket",
+                "label": "US · United States Finance Business Email Compromise Midmarket",
+                "scope": "US · financial services · business email compromise",
+                "country": "US",
+                "currency": "USD",
+                "status": "starter_with_source_backed_us_likely_loss",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 5,
+                        "low": 1
+                },
+                "frequency": {
+                        "min": 0.004,
+                        "likely": 0.63,
+                        "max": 0.74
+                },
+                "impact": {
+                        "min": 50000,
+                        "likely": 120000,
+                        "max": 6400000
+                },
+                "not_good_for": "Benchmark-grade US BEC frequency, sector-specific severity, or tail-loss decisions.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "FBI IC3 2025 Annual Report and U.S. Census SUSB 2022",
+                                "url": "https://www.ic3.gov/AnnualReport/Reports/2025_IC3Report.pdf",
+                                "confidence": "medium",
+                                "limitations": "IC3 counts only complaints reported to the FBI and substantially undercounts true BEC incidence; numerator and denominator are both all-sector/all-industry, so this is an economy-wide reported floor, not financial-services-specific or mid-market-specific; it is a lower-bound floor, not a central likelihood. Confidence is medium for a reported-complaint floor, not for a likely BEC rate."
+                        },
+                        "frequency.likely": {
+                                "source_name": "2025 AFP Payments Fraud and Control Survey Report",
+                                "url": "https://web.archive.org/web/20250707164054/https://www.financialprofessionals.org/training-resources/resources/survey-research-economic-data/details/payments-fraud",
+                                "confidence": "medium",
+                                "limitations": "Survey measures organizations experiencing attempted or actual BEC, not confirmed financial-loss events; AFP respondents skew toward corporate treasury and larger organizations (AFP reports 66% of BEC attempts target organizations with at least USD 1B revenue), so this overall prevalence likely overstates a mid-market financial-services rate; not financial-services-specific. Revise when mid-market-specific BEC event-frequency evidence is reviewed."
+                        },
+                        "frequency.max": {
+                                "source_name": "2026 AFP Payments Fraud and Control Survey Report",
+                                "url": "https://www.financialprofessionals.org/about/learn-more/press-releases/Details/over-75-percent-of-us-firms-experienced-payments-fraud-in-2025-while-ai-adoption-for-fraud-mitigation-lags",
+                                "confidence": "medium",
+                                "limitations": "Survey measures organizations experiencing attempted or actual BEC, not confirmed financial-loss events; AFP respondents skew toward corporate treasury and larger organizations, so this overall prevalence likely overstates a mid-market financial-services rate; it is drawn from the subsequent (2026) AFP edition rather than the same edition as the likely bridge; not financial-services-specific. Revise when mid-market-specific BEC event-frequency evidence is reviewed."
+                        },
+                        "impact.min": {
+                                "source_name": "Verizon 2026 Data Breach Investigations Report",
+                                "url": "https://www.verizon.com/business/resources/T766/reports/2026-dbir-data-breach-investigations-report.pdf",
+                                "confidence": "medium",
+                                "limitations": "Median of FBI IC3 complaint-reported BEC losses as presented by Verizon DBIR; complaint-driven and self-reported, not financial-services-specific or mid-market-specific, and not a formal minimum quantile for this scenario."
+                        },
+                        "impact.likely": {
+                                "source_name": "FBI IC3 2025 Annual Report",
+                                "url": "https://www.ic3.gov/AnnualReport/Reports/2025_IC3Report.pdf",
+                                "confidence": "medium",
+                                "limitations": "US IC3 complaint population; self-reported and complaint-driven; not financial-services-specific, mid-market-specific, or a full loss distribution."
+                        },
+                        "impact.max": {
+                                "source_name": "Coalition funds transfer fraud largest clawback case",
+                                "url": "https://www.coalitioninc.com/blog/how-coalition-recovered-usd5-5m-in-stolen-money-after-funds-transfer-fraud",
+                                "confidence": "low",
+                                "limitations": "One documented extreme funds-transfer-fraud case from a cyber insurer's book, not a modeled loss percentile or a financial-services mid-market average; 85% was recovered via clawback in this instance, but recovery is not guaranteed, so the gross figure is modeled; BEC/FTF-specific but drawn from a single case. Revise when a US mid-market BEC loss distribution with tail quantiles is reviewed."
+                        }
+                }
+        },
+        {
+                "id": "us_finance_data_breach_midmarket",
+                "title": "United States Finance Data Breach Midmarket",
+                "label": "US · United States Finance Data Breach Midmarket",
+                "scope": "US · financial services · data breach",
+                "country": "US",
+                "currency": "USD",
+                "status": "benchmark_review_candidate",
+                "provenance_tier": "module_governed",
+                "confidence_summary": {
+                        "medium": 6
+                },
+                "frequency": {
+                        "min": 0.43,
+                        "likely": 0.65,
+                        "max": 0.69
+                },
+                "impact": {
+                        "min": 152000,
+                        "likely": 329000,
+                        "max": 11500000
+                },
+                "not_good_for": "Treating the bridged UK frequency as a US per-firm breach rate, or using the enterprise IBM financial-services average as an expected mid-market loss.",
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "UK official survey used as a bridge; not US-specific and not financial-services-specific; covers identified breaches or attacks, broader than privacy-only data breach."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "UK official survey used as a bridge; not US-specific and not financial-services-specific; may include high-volume low-impact events."
+                        },
+                        "frequency.max": {
+                                "source_name": "Cyber Security Breaches Survey 2025/2026",
+                                "url": "https://www.gov.uk/government/statistics/cyber-security-breaches-survey-20252026/cyber-security-breaches-survey-20252026",
+                                "confidence": "medium",
+                                "limitations": "UK official survey used as a bridge; not US-specific and not financial-services-specific; large-business prevalence can overstate mid-market likelihood."
+                        },
+                        "impact.min": {
+                                "source_name": "NetDiligence Cyber Claims Study 2025 (Fifteenth Annual)",
+                                "url": "https://netdiligence.com/cyber-claims-study-2025-report/",
+                                "confidence": "medium",
+                                "limitations": "Insured-claim crisis-services subset; not full total loss; SME band is broad (under USD 2B revenue) and not isolated to financial services."
+                        },
+                        "impact.likely": {
+                                "source_name": "NetDiligence Cyber Claims Study 2025 (Fifteenth Annual)",
+                                "url": "https://netdiligence.com/cyber-claims-study-2025-report/",
+                                "confidence": "medium",
+                                "limitations": "Insured-claim sample: covers claims of USD 1K or more that reached an insurer, so it excludes uninsured, self-absorbed and unreported losses, and is censored by policy limits and self-insured retentions. The SME band spans revenue up to USD 2B even though the financial-services sample averages USD 113M. Pooled 2020-2024 in nominal dollars with no inflation adjustment. RiskShard's mid_market band is defined by headcount while this segmentation is by revenue - the mapping is an explicit assumption, not a measurement."
+                        },
+                        "impact.max": {
+                                "source_name": "NetDiligence Cyber Claims Study 2025 (Fifteenth Annual)",
+                                "url": "https://netdiligence.com/cyber-claims-study-2025-report/",
+                                "confidence": "medium",
+                                "limitations": "A single observed claim, not a modelled percentile - it is the maximum of 579 claims over five years, so it says nothing about how much worse a loss could be, and a larger sample would likely show a larger maximum. Insured-claim basis, so it is censored by policy limits and excludes uninsured or unreported losses. The SME band spans revenue up to USD 2B. Nominal 2020-2024 dollars, not inflation-adjusted."
+                        }
+                }
+        },
+        {
+                "id": "ai_enabled_fraud",
+                "title": "AI-Enabled Fraud",
+                "label": "AI-Enabled Fraud",
+                "scope": "no country stated · no sector stated · ai enabled fraud",
+                "country": null,
+                "currency": "USD",
+                "status": "emergent_starter_source_backed_bridges_fast_rising_volatile",
+                "provenance_tier": "evidence_backed",
+                "confidence_summary": {
+                        "low": 6
+                },
+                "frequency": {
+                        "min": 0.1,
+                        "likely": 0.62,
+                        "max": 0.92
+                },
+                "impact": {
+                        "min": 50000,
+                        "likely": 450000,
+                        "max": 25600000
+                },
+                "not_good_for": null,
+                "provenance": {
+                        "frequency.min": {
+                                "source_name": "Deepfake business fraud impact statistics 2024",
+                                "url": "https://www.security.org/resources/deepfake-statistics/",
+                                "confidence": "low",
+                                "limitations": "Secondary compilation of vendor survey data, low trust; deepfake fraud is fast-rising and volatile so any single figure dates quickly; attempts, not confirmed loss events; not sector- or size-specific. Revise as the deepfake evidence base matures."
+                        },
+                        "frequency.likely": {
+                                "source_name": "Gartner deepfake attack survey (September 2025)",
+                                "url": "https://www.adaptivesecurity.com/blog/deepfake-statistics-2026-the-data-security-leaders-need-to-know",
+                                "confidence": "low",
+                                "limitations": "Analyst survey accessed via secondary reporting, lower trust; measures deepfake attacks/attempts, not confirmed fraud-loss events; fast-rising and volatile; not sector- or size-specific. Revise as the evidence base matures."
+                        },
+                        "frequency.max": {
+                                "source_name": "Regula Deepfake Fraud Impact Survey 2024",
+                                "url": "https://regulaforensics.com/blog/impact-of-deepfakes-on-idv-regula-survey/",
+                                "confidence": "low",
+                                "limitations": "Vendor (identity-verification) survey, lower trust; \"experienced financial loss due to a deepfake\" is broad and self-reported; fast-rising and volatile; not sector- or size-specific. Revise as the evidence base matures."
+                        },
+                        "impact.min": {
+                                "source_name": "Verizon 2026 Data Breach Investigations Report",
+                                "url": "https://www.verizon.com/business/resources/T766/reports/2026-dbir-data-breach-investigations-report.pdf",
+                                "confidence": "low",
+                                "limitations": "GLOBAL BRIDGE. Median of FBI IC3 complaint-reported BEC losses used as an AI-fraud floor; not deepfake-specific and not a mid-market figure. Revise when a deepfake-specific loss floor is reviewed."
+                        },
+                        "impact.likely": {
+                                "source_name": "Regula Deepfake Fraud Impact Survey 2024",
+                                "url": "https://regulaforensics.com/blog/impact-of-deepfakes-on-idv-regula-survey/",
+                                "confidence": "low",
+                                "limitations": "Vendor survey (identity-verification vendor with a product interest in the threat), low trust; an average of survey-reported losses, not a distribution quantile; deepfake losses are volatile and fast-rising. Revise as the evidence base matures."
+                        },
+                        "impact.max": {
+                                "source_name": "Arup Hong Kong deepfake CFO fraud case 2024",
+                                "url": "https://www.cnn.com/2024/02/04/asia/deepfake-cfo-scam-hong-kong-intl-hnk",
+                                "confidence": "low",
+                                "limitations": "One documented extreme case at a large engineering firm, not a mid-market average or a loss percentile; a single incident, not a distribution. Revise when a deepfake-fraud loss distribution with tail quantiles is reviewed."
+                        }
+                }
+        }
+];
+
+        const CURRENCY_SYMBOLS = { USD: '$', AUD: 'A$', CAD: 'C$', GBP: '\u00a3' };
+
+        function benchmarkById(id) {
+            return RISK_BENCHMARKS.find(b => b.id === id) || null;
+        }
+
+        // Worst level first: a shard where every parameter is "low" should not
+        // read like one where they are all "medium".
+        function confidenceLabel(b) {
+            const s = b.confidence_summary || {};
+            const parts = ['low', 'medium', 'high', 'unstated'].filter(k => s[k]).map(k => `${s[k]} ${k}`);
+            return parts.join(', ') || 'confidence unstated';
+        }
+
+        function defaultParamsForCell(row, col) {
+            return {
+                frequency: { ...FREQUENCY_ANCHORS_BY_ROW[row] },
+                impact: { ...IMPACT_ANCHORS_BY_COL[col] },
+            };
+        }
+
+        function handleCellClick(row, col, cell) {
+            const riskIndex = state.risks.findIndex(r => r.row === row && r.col === col);
+
+            if (riskIndex >= 0) {
+                state.risks.splice(riskIndex, 1);
+                cell.classList.remove('placed');
+                cell.textContent = '';
+            } else {
+                if (state.risks.length < 5) {
+                    const riskNum = state.risks.length + 1;
+                    const defaults = defaultParamsForCell(row, col);
+                    state.risks.push({
+                        id: Date.now() + Math.random(),
+                        num: riskNum,
+                        row,
+                        col,
+                        frequency: { ...defaults.frequency },
+                        impact: { ...defaults.impact },
+                        currency: 'USD',
+                        benchmarkId: ''
+                    });
+                    cell.classList.add('placed');
+                    cell.textContent = riskNum;
+                }
+            }
+
+            updateRiskInputs();
+            updateSimulateButton();
+        }
+
+        function updateRiskInputs() {
+            const container = document.getElementById('risksContainer');
+            document.getElementById('riskCount').textContent = state.risks.length;
+
+            if (state.risks.length === 0) {
+                container.innerHTML = '<div class="results-placeholder">Place risks on the heatmap to begin</div>';
+                return;
+            }
+
+            container.innerHTML = state.risks.map(risk => `
+                <div class="risk-item">
+                    <div class="risk-header">
+                        <span class="risk-name">Risk ${risk.num}</span>
+                        <span class="risk-color" style="background: ${riskColors[risk.num - 1]}"></span>
+                    </div>
+
+                    <div style="font-size: 0.85rem; color: var(--muted); margin-bottom: 12px;">
+                        Cell: (${impacts[risk.col]}, ${likelihoods[risk.row]})
+                    </div>
+
+                    <div class="benchmark-picker">
+                        <label for="bm-${risk.id}">Start from a benchmark</label>
+                        <select id="bm-${risk.id}" data-risk-id="${risk.id}" data-role="benchmark">
+                            <option value="">Heatmap anchors (illustrative)</option>
+                            ${RISK_BENCHMARKS.map(b => `
+                                <option value="${b.id}" ${risk.benchmarkId === b.id ? 'selected' : ''}>
+                                    ${b.label}
+                                </option>`).join('')}
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <div class="input-field">
+                            <label class="frequency-label">Frequency Min</label>
+                            <input type="number" step="0.1" value="${risk.frequency.min}"
+                                   data-risk-id="${risk.id}" data-field="frequency.min">
+                        </div>
+                        <div class="input-field">
+                            <label class="frequency-label">Most Likely</label>
+                            <input type="number" step="0.1" value="${risk.frequency.likely}"
+                                   data-risk-id="${risk.id}" data-field="frequency.likely">
+                        </div>
+                        <div class="input-field">
+                            <label class="frequency-label">Max (per year)</label>
+                            <input type="number" step="0.1" value="${risk.frequency.max}"
+                                   data-risk-id="${risk.id}" data-field="frequency.max">
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <div class="input-field">
+                            <label class="impact-label">Impact Min</label>
+                            <input type="number" step="10000" value="${risk.impact.min}"
+                                   data-risk-id="${risk.id}" data-field="impact.min">
+                        </div>
+                        <div class="input-field">
+                            <label class="impact-label">Most Likely</label>
+                            <input type="number" step="10000" value="${risk.impact.likely}"
+                                   data-risk-id="${risk.id}" data-field="impact.likely">
+                        </div>
+                        <div class="input-field">
+                            <label class="impact-label">Max ($ per event)</label>
+                            <input type="number" step="10000" value="${risk.impact.max}"
+                                   data-risk-id="${risk.id}" data-field="impact.max">
+                        </div>
+                    </div>
+
+                    ${renderProvenance(risk)}
+                </div>
+            `).join('');
+
+            container.querySelectorAll('input').forEach(input => {
+                input.addEventListener('change', (e) => {
+                    const riskId = parseFloat(e.target.dataset.riskId);
+                    const field = e.target.dataset.field;
+                    const value = parseFloat(e.target.value);
+
+                    const risk = state.risks.find(r => r.id === riskId);
+                    if (risk) {
+                        const [fieldGroup, fieldName] = field.split('.');
+                        risk[fieldGroup][fieldName] = value;
+                    }
+                });
+            });
+
+            container.querySelectorAll('select[data-role="benchmark"]').forEach(sel => {
+                sel.addEventListener('change', (e) => {
+                    const risk = state.risks.find(r => r.id === parseFloat(e.target.dataset.riskId));
+                    if (!risk) return;
+                    const bm = benchmarkById(e.target.value);
+                    if (bm) {
+                        risk.frequency = { ...bm.frequency };
+                        risk.impact = { ...bm.impact };
+                        risk.currency = bm.currency;
+                        risk.benchmarkId = bm.id;
+                    } else {
+                        const defaults = defaultParamsForCell(risk.row, risk.col);
+                        risk.frequency = { ...defaults.frequency };
+                        risk.impact = { ...defaults.impact };
+                        risk.currency = 'USD';
+                        risk.benchmarkId = '';
+                    }
+                    updateRiskInputs();
+                });
+            });
+        }
+
+        // The point of the picker is not the numbers, it is that each number
+        // arrives with the source that produced it and the caveat that source
+        // carries. Rendering the value without the caveat would be worse than
+        // the invented anchors, because it would look authoritative.
+        function renderProvenance(risk) {
+            const bm = benchmarkById(risk.benchmarkId);
+            if (!bm) return '';
+            const rows = Object.entries(bm.provenance).map(([param, p]) => `
+                <li>
+                    <code>${param}</code> &mdash;
+                    ${p.url ? `<a href="${p.url}" target="_blank" rel="noopener">${p.source_name}</a>`
+                            : (p.source_name || 'unattributed')}
+                    ${p.confidence ? `<span class="prov-confidence">${p.confidence} confidence</span>` : ''}
+                    ${p.limitations ? `<div class="prov-limit">${p.limitations}</div>` : ''}
+                </li>`).join('');
+            return `
+                <div class="provenance">
+                    <div class="prov-status">${bm.currency} &middot; ${(bm.status || 'status unstated').replace(/_/g, ' ')}
+                        &middot; ${bm.provenance_tier.replace(/_/g, ' ')} &middot; ${confidenceLabel(bm)}</div>
+                    ${bm.not_good_for
+                        ? `<div class="prov-warning"><strong>Not good for:</strong> ${bm.not_good_for}</div>`
+                        : `<div class="prov-warning"><strong>No stated limits.</strong> No practitioner
+                           &ldquo;not good for&rdquo; statement exists upstream for this shard. That is a
+                           gap in the record, not a clean bill of health &mdash; read the per-parameter
+                           limitations below.</div>`}
+                    <details>
+                        <summary>Where these numbers come from (${Object.keys(bm.provenance).length} sources)</summary>
+                        <ul>${rows}</ul>
+                    </details>
+                </div>`;
+        }
+
+        function updateSimulateButton() {
+            const btn = document.getElementById('simulateBtn');
+            btn.disabled = state.risks.length === 0;
+        }
+
+        // ------------------------------------------------------------------
+        // The simulation engine.
+        //
+        // The previous version drew one triangular frequency and one
+        // triangular impact per simulated year, turned frequency into an
+        // event count with a formula that was not actually Poisson, and then
+        // multiplied: numEvents * impact. That treats a year with three
+        // events as a year with one event that cost three times as much --
+        // it is not the same distribution, and it is the single most common
+        // bug in Monte Carlo risk tools. A year's loss is the SUM of
+        // independent per-event losses, not one loss repeated.
+        //
+        // What this does instead, per simulated year:
+        //   1. Draw an annual frequency from a PERT distribution (the
+        //      analyst's min/likely/max -- this is the one draw that
+        //      represents "how active is this threat this year").
+        //   2. Draw the actual event COUNT from Poisson(frequency). This is
+        //      what "frequency" in a risk register actually means: a rate
+        //      that produces a variable count, not a count itself.
+        //   3. Draw a separate, independent impact for every one of those
+        //      events, and sum them.
+        //
+        // PERT replaces the triangular distribution for the same reason FAIR
+        // uses it: it weights the "most likely" point instead of treating it
+        // as no more probable than the endpoints, which is what a triangle
+        // does.
+        // ------------------------------------------------------------------
+
+        function normalSample() {
+            let u1 = 0;
+            while (u1 === 0) u1 = Math.random();
+            const u2 = Math.random();
+            return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        }
+
+        function gammaSample(alpha) {
+            if (alpha < 1) {
+                const u = Math.random();
+                return gammaSample(alpha + 1) * Math.pow(u, 1 / alpha);
+            }
+            const d = alpha - 1 / 3;
+            const c = 1 / Math.sqrt(9 * d);
+            for (;;) {
+                let x, v;
+                do {
+                    x = normalSample();
+                    v = 1 + c * x;
+                } while (v <= 0);
+                v = v * v * v;
+                const u = Math.random();
+                if (u < 1 - 0.0331 * x * x * x * x) return d * v;
+                if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v;
+            }
+        }
+
+        function betaSample(alpha, beta) {
+            const x = gammaSample(alpha);
+            const y = gammaSample(beta);
+            return x / (x + y);
+        }
+
+        function pertSample(min, mostLikely, max, lam) {
+            lam = lam === undefined ? 4 : lam;
+            const span = max - min;
+            if (span <= 0) return min;
+            const alpha = 1 + (lam * (mostLikely - min)) / span;
+            const beta = 1 + (lam * (max - mostLikely)) / span;
+            return min + betaSample(alpha, beta) * span;
+        }
+
+        function poissonSample(lambda) {
+            if (lambda <= 0) return 0;
+            const L = Math.exp(-lambda);
+            let k = 0, p = 1;
+            do { k++; p *= Math.random(); } while (p > L);
+            return k - 1;
+        }
+
+        function simulateRisk(risk, iterations) {
+            const annualLosses = new Float64Array(iterations);
+            const eventCounts = new Int32Array(iterations);
+
+            for (let i = 0; i < iterations; i++) {
+                const freq = pertSample(risk.frequency.min, risk.frequency.likely, risk.frequency.max);
+                const count = poissonSample(Math.max(freq, 0));
+                eventCounts[i] = count;
+
+                let total = 0;
+                for (let e = 0; e < count; e++) {
+                    total += pertSample(risk.impact.min, risk.impact.likely, risk.impact.max);
+                }
+                annualLosses[i] = total;
+            }
+
+            return { annualLosses, eventCounts };
+        }
+
+        function summarise(annualLosses, eventCounts) {
+            const sorted = Array.from(annualLosses).sort((a, b) => a - b);
+            const n = sorted.length;
+            const zeroEventYears = eventCounts.reduce((acc, c) => acc + (c === 0 ? 1 : 0), 0);
+            return {
+                losses: sorted,
+                mean: sorted.reduce((a, b) => a + b, 0) / n,
+                median: sorted[Math.floor(n / 2)],
+                p90: sorted[Math.floor(n * 0.9)],
+                zeroPercent: (zeroEventYears / n) * 100,
+            };
+        }
+
+        function runSimulation() {
+            state.riskResults = {};
+            const n = state.simulations;
+
+            // Kept unsorted per risk, indexed by simulated year, so the
+            // portfolio total can sum each year's draws across risks before
+            // anything is sorted. Summarise() takes its own sorted copy --
+            // sorting in place here would destroy the year-by-year pairing
+            // the aggregate needs.
+            const rawByRisk = {};
+
+            state.risks.forEach(risk => {
+                const { annualLosses, eventCounts } = simulateRisk(risk, n);
+                rawByRisk[risk.id] = annualLosses;
+                state.riskResults[risk.id] = summarise(annualLosses, eventCounts);
+            });
+
+            const currencies = new Set(state.risks.map(r => r.currency || 'USD'));
+            state.mixedCurrency = currencies.size > 1;
+
+            if (state.risks.length > 1 && !state.mixedCurrency) {
+                const portfolioLosses = new Float64Array(n);
+                const portfolioEvents = new Int32Array(n);
+                state.risks.forEach(risk => {
+                    const losses = rawByRisk[risk.id];
+                    for (let i = 0; i < n; i++) {
+                        portfolioLosses[i] += losses[i];
+                        if (losses[i] > 0) portfolioEvents[i] = 1;
+                    }
+                });
+                state.aggregateResult = summarise(portfolioLosses, portfolioEvents);
+            } else {
+                // A one-risk portfolio's total is that risk's own total --
+                // showing a duplicate card would just be noise. Mixed
+                // currencies land here too: summing GBP onto USD would produce
+                // a confident number that means nothing.
+                state.aggregateResult = null;
+            }
+
+            displayResults();
+        }
+
+        function displayResults() {
+            document.getElementById('comparisonArea').style.display = 'block';
+            document.getElementById('heatmapCount').textContent = state.risks.length;
+            document.getElementById('histogramCount').textContent = state.risks.length;
+
+            const riskResultsArea = document.getElementById('riskResultsArea');
+            const aggregateHtml = state.aggregateResult ? renderAggregateCard()
+                : (state.mixedCurrency ? `
+                    <div class="risk-result-card portfolio-card">
+                        <div class="risk-result-body">
+                            <strong>No portfolio total.</strong> These risks are priced in
+                            different currencies, and adding them without a stated FX rate
+                            and date would produce a number that looks precise and is not.
+                        </div>
+                    </div>` : '');
+            riskResultsArea.innerHTML = aggregateHtml + state.risks.map(risk => {
+                const result = state.riskResults[risk.id];
+                const chartSvg = createLossChart(result.losses, riskColors[risk.num - 1]);
+
+                return `
+                    <div class="risk-result-card">
+                        <div class="risk-result-header">
+                            <div class="risk-badge" style="background: ${riskColors[risk.num - 1]}">${risk.num}</div>
+                            <div class="risk-info">
+                                <div class="risk-info-title">Risk ${risk.num}</div>
+                                <div class="risk-info-cell">On the heat map: ${likelihoods[risk.row]} / ${impacts[risk.col]}</div>
+                            </div>
+                        </div>
+                        <div class="risk-result-body">
+                            <div class="chart-container">${chartSvg}</div>
+                            <div class="risk-stats">
+                                <div class="risk-stat">
+                                    <div class="risk-stat-label">Median (P50)</div>
+                                    <div class="risk-stat-value">${formatNumber(result.median, risk.currency)}</div>
+                                </div>
+                                <div class="risk-stat">
+                                    <div class="risk-stat-label">Expected</div>
+                                    <div class="risk-stat-value">${formatNumber(result.mean, risk.currency)}</div>
+                                </div>
+                                <div class="risk-stat">
+                                    <div class="risk-stat-label">Bad Year (P90)</div>
+                                    <div class="risk-stat-value">${formatNumber(result.p90, risk.currency)}</div>
+                                </div>
+                            </div>
+                            <div class="risk-zero-percent">${result.zeroPercent.toFixed(0)}% of years: no loss events</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('resultsArea').style.display = 'none';
+        }
+
+        function renderAggregateCard() {
+            const result = state.aggregateResult;
+            const chartSvg = createLossChart(result.losses, '#3a3336');
+            return `
+                <div class="risk-result-card portfolio-card">
+                    <div class="risk-result-header">
+                        <div class="risk-badge" style="background: var(--ink)">&Sigma;</div>
+                        <div class="risk-info">
+                            <div class="risk-info-title">Portfolio Total</div>
+                            <div class="risk-info-cell">All ${state.risks.length} risks combined, summed year by year -- not added by their percentiles</div>
+                        </div>
+                    </div>
+                    <div class="risk-result-body">
+                        <div class="chart-container">${chartSvg}</div>
+                        <div class="risk-stats">
+                            <div class="risk-stat">
+                                <div class="risk-stat-label">Median (P50)</div>
+                                <div class="risk-stat-value">${formatNumber(result.median)}</div>
+                            </div>
+                            <div class="risk-stat">
+                                <div class="risk-stat-label">Expected</div>
+                                <div class="risk-stat-value">${formatNumber(result.mean)}</div>
+                            </div>
+                            <div class="risk-stat">
+                                <div class="risk-stat-label">Bad Year (P90)</div>
+                                <div class="risk-stat-value">${formatNumber(result.p90)}</div>
+                            </div>
+                        </div>
+                        <div class="risk-zero-percent">${result.zeroPercent.toFixed(0)}% of years: no loss events across the whole portfolio</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createLossChart(losses, color) {
+            const binCount = 30;
+            const min = losses[0];
+            const max = losses[losses.length - 1];
+            const range = max - min || 1;
+            const binSize = range / binCount;
+
+            const bins = Array(binCount).fill(0);
+            losses.forEach(loss => {
+                const idx = Math.min(Math.floor((loss - min) / binSize), binCount - 1);
+                bins[idx]++;
+            });
+
+            const maxBin = Math.max(...bins);
+            const width = 400;
+            const height = 180;
+
+            let svg = `<svg viewBox="0 0 ${width} ${height}" style="width: 100%; height: 100%;">`;
+            svg += `<rect width="${width}" height="${height}" fill="transparent"/>`;
+            svg += `<line x1="40" y1="20" x2="40" y2="160" stroke="#d8c9cc" stroke-width="1"/>`;
+            svg += `<line x1="40" y1="160" x2="${width - 20}" y2="160" stroke="#d8c9cc" stroke-width="1"/>`;
+
+            const barWidth = (width - 60) / binCount;
+            bins.forEach((count, i) => {
+                const barHeight = (count / maxBin) * 140;
+                const x = 40 + (i * barWidth);
+                const y = 160 - barHeight;
+                svg += `<rect x="${x}" y="${y}" width="${barWidth - 0.5}" height="${barHeight}" fill="${color}" opacity="0.8"/>`;
+            });
+
+            svg += `</svg>`;
+            return svg;
+        }
+
+        function formatNumber(num, currency) {
+            const sym = CURRENCY_SYMBOLS[currency || 'USD'] || ((currency || 'USD') + ' ');
+            if (num >= 1000000) return sym + (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return sym + (num / 1000).toFixed(0) + 'K';
+            return sym + Math.round(num);
+        }
+
+        document.getElementById('simulateBtn').addEventListener('click', runSimulation);
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            state.risks = [];
+            state.riskResults = {};
+            initHeatmap();
+            updateRiskInputs();
+            updateSimulateButton();
+            document.getElementById('comparisonArea').style.display = 'none';
+            document.getElementById('resultsArea').style.display = 'block';
+            document.getElementById('riskResultsArea').innerHTML = '';
+        });
+
+        initHeatmap();
+        updateRiskInputs();
+        updateSimulateButton();
+    </script>
+</body>
+</html>
